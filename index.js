@@ -1,7 +1,6 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import voice from "elevenlabs-node";
 import OpenAI from "openai";
 import { exec } from "child_process";
 import { promises as fs } from "fs";
@@ -9,6 +8,9 @@ import ffmpegPath from "ffmpeg-static";
 import os from "os";
 import path from "path";
 import crypto from "crypto";
+
+// 👇️ Dynamically import CommonJS 'elevenlabs-node'
+const { textToSpeech } = await import("elevenlabs-node");
 
 dotenv.config();
 
@@ -113,7 +115,7 @@ app.post("/chat", async (req, res) => {
 
       try {
         console.log(`🔊 Generating voice for message[${i}]: ${message.text}`);
-        await voice.textToSpeech(elevenLabsApiKey, voiceID, mp3Path, message.text);
+        await textToSpeech(elevenLabsApiKey, voiceID, mp3Path, message.text);
         console.log(`✅ Voice saved to: ${mp3Path}`);
       } catch (err) {
         console.error("❌ ElevenLabs text-to-speech failed:", err);
