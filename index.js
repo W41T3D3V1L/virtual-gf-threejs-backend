@@ -3,13 +3,13 @@ import cors from "cors";
 import dotenv from "dotenv";
 import OpenAI from "openai";
 import { exec } from "child_process";
-import { promises as fs } from "fs";
+import { promises as fs, createWriteStream } from "fs";
 import ffmpegPath from "ffmpeg-static";
 import os from "os";
 import path from "path";
 import crypto from "crypto";
+import https from "https";
 
-const { textToSpeech: rawTextToSpeech } = await import("elevenlabs-node");
 dotenv.config();
 
 const app = express();
@@ -17,11 +17,11 @@ app.use(express.json());
 app.use(cors());
 const port = 3000;
 
-// === OpenAI & ElevenLabs ===
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
   baseURL: "https://api.chatanywhere.tech/v1",
 });
+
 const elevenLabsApiKey = process.env.ELEVEN_LABS_API_KEY;
 const voiceID = "9BWtsMINqrJLrRacOk9x";
 
@@ -47,18 +47,44 @@ const waitForFile = async (filePath, retries = 30, delay = 300) => {
   throw new Error(`File not found: ${filePath}`);
 };
 
-const safeTextToSpeech = async (apiKey, voiceId, filePath, text, retries = 3) => {
-  for (let i = 0; i < retries; i++) {
-    try {
-      await rawTextToSpeech(apiKey, voiceId, filePath, text);
-      await waitForFile(filePath); // confirm file is there
-      return;
-    } catch (err) {
-      console.warn(`⚠️ TTS attempt ${i + 1} failed:`, err.message);
-      if (i === retries - 1) throw new Error("Text-to-speech generation failed after 3 attempts");
-      await new Promise((r) => setTimeout(r, 500 * (i + 1))); // backoff
-    }
-  }
+const generateSpeech = async (text, outputFile) => {
+  const options = {
+    hostname: "api.elevenlabs.io",
+    path: `/v1/text-to-speech/${voiceID}?optimize_streaming_latency=0`,
+    method: "POST",
+    headers: {
+      "xi-api-key": elevenLabsApiKey,
+      "Content-Type": "application/json",
+      "Accept": "audio/mpeg",
+    },
+  };
+
+  const body = JSON.stringify({
+    text,
+    model_id: "eleven_multilingual_v2",
+    voice_settings: {
+      stability: 0.5,
+      similarity_boost: 0.75,
+    },
+  });
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(options, (res) => {
+      if (res.statusCode !== 200) {
+        return reject(new Error(`TTS failed with status: ${res.statusCode}`));
+      }
+
+      const stream = createWriteStream(outputFile);
+      res.pipe(stream);
+
+      stream.on("finish", () => resolve());
+      stream.on("error", reject);
+    });
+
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
 };
 
 const lipSyncMessage = async (hash, index) => {
@@ -83,7 +109,7 @@ const audioFileToBase64 = async (file) => {
   return data.toString("base64");
 };
 
-// === API Routes ===
+// === Routes ===
 app.get("/", (req, res) => {
   res.send("✅ Virtual Girlfriend Backend Running!");
 });
@@ -125,7 +151,8 @@ app.post("/chat", async (req, res) => {
       const jsonPath = path.join(os.tmpdir(), `message_${hash}_${i}.json`);
 
       console.log(`🔊 Generating voice for message[${i}]: ${message.text}`);
-      await safeTextToSpeech(elevenLabsApiKey, voiceID, mp3Path, message.text);
+      await generateSpeech(message.text, mp3Path);
+      await waitForFile(mp3Path);
       console.log(`✅ Voice ready: ${mp3Path}`);
 
       await lipSyncMessage(hash, i);
