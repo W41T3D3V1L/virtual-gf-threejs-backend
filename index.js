@@ -9,7 +9,6 @@ import os from "os";
 import path from "path";
 import crypto from "crypto";
 
-// 👇️ Dynamically import CommonJS 'elevenlabs-node'
 const { textToSpeech } = await import("elevenlabs-node");
 
 dotenv.config();
@@ -41,13 +40,11 @@ const waitForFile = async (filePath, retries = 30, delay = 300) => {
   for (let i = 0; i < retries; i++) {
     try {
       await fs.access(filePath);
-      console.log(`✅ File found: ${filePath}`);
       return true;
     } catch {
       await new Promise((r) => setTimeout(r, delay));
     }
   }
-  console.error(`🕵️ Waited but file never appeared: ${filePath}`);
   throw new Error(`File not found: ${filePath}`);
 };
 
@@ -56,7 +53,6 @@ const lipSyncMessage = async (hash, index) => {
   const mp3Path = path.join(os.tmpdir(), `message_${hash}_${index}.mp3`);
   const jsonPath = path.join(os.tmpdir(), `message_${hash}_${index}.json`);
 
-  await waitForFile(mp3Path);
   console.log("🔄 Converting MP3 to WAV...");
   await execCommand(`${ffmpegPath} -y -i ${mp3Path} ${wavPath}`);
   console.log("💬 Running rhubarb for lip sync...");
@@ -113,16 +109,25 @@ app.post("/chat", async (req, res) => {
       const mp3Path = path.join(os.tmpdir(), `message_${hash}_${i}.mp3`);
       const jsonPath = path.join(os.tmpdir(), `message_${hash}_${i}.json`);
 
-      try {
-        console.log(`🔊 Generating voice for message[${i}]: ${message.text}`);
-        await textToSpeech(elevenLabsApiKey, voiceID, mp3Path, message.text);
+      let success = false;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          console.log(`🔊 Generating voice for message[${i}]: ${message.text} (attempt ${attempt})`);
+          await textToSpeech(elevenLabsApiKey, voiceID, mp3Path, message.text);
+          await waitForFile(mp3Path, 30, 300);
+          console.log(`✅ Voice confirmed and saved: ${mp3Path}`);
+          success = true;
+          break;
+        } catch (err) {
+          console.warn(`⚠️ Attempt ${attempt} failed: ${err.message}`);
+          if (attempt < 3) {
+            await new Promise((r) => setTimeout(r, attempt * 500));
+          }
+        }
+      }
 
-        // Ensure the file is truly written before proceeding
-        await waitForFile(mp3Path);
-        console.log(`✅ Voice confirmed and saved: ${mp3Path}`);
-      } catch (err) {
-        console.error("❌ ElevenLabs TTS failed:", err);
-        throw new Error("Text-to-speech generation failed");
+      if (!success) {
+        throw new Error("Text-to-speech generation failed after 3 attempts");
       }
 
       await lipSyncMessage(hash, i);
