@@ -35,15 +35,17 @@ const execCommand = (command) => {
   });
 };
 
-const waitForFile = async (filePath, retries = 20, delay = 200) => {
+const waitForFile = async (filePath, retries = 30, delay = 300) => {
   for (let i = 0; i < retries; i++) {
     try {
       await fs.access(filePath);
+      console.log(`✅ File found: ${filePath}`);
       return true;
     } catch {
       await new Promise((r) => setTimeout(r, delay));
     }
   }
+  console.error(`🕵️ Waited but file never appeared: ${filePath}`);
   throw new Error(`File not found: ${filePath}`);
 };
 
@@ -53,7 +55,9 @@ const lipSyncMessage = async (hash, index) => {
   const jsonPath = path.join(os.tmpdir(), `message_${hash}_${index}.json`);
 
   await waitForFile(mp3Path);
+  console.log("🔄 Converting MP3 to WAV...");
   await execCommand(`${ffmpegPath} -y -i ${mp3Path} ${wavPath}`);
+  console.log("💬 Running rhubarb for lip sync...");
   await execCommand(`/bin/rhubarb -f json -o ${jsonPath} ${wavPath} -r phonetic`);
 };
 
@@ -78,6 +82,7 @@ app.post("/chat", async (req, res) => {
   }
 
   try {
+    console.log("🧠 Sending prompt to OpenAI...");
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       max_tokens: 1000,
@@ -106,20 +111,27 @@ app.post("/chat", async (req, res) => {
       const mp3Path = path.join(os.tmpdir(), `message_${hash}_${i}.mp3`);
       const jsonPath = path.join(os.tmpdir(), `message_${hash}_${i}.json`);
 
-      await voice.textToSpeech(elevenLabsApiKey, voiceID, mp3Path, message.text);
-      await lipSyncMessage(hash, i);
+      try {
+        console.log(`🔊 Generating voice for message[${i}]: ${message.text}`);
+        await voice.textToSpeech(elevenLabsApiKey, voiceID, mp3Path, message.text);
+        console.log(`✅ Voice saved to: ${mp3Path}`);
+      } catch (err) {
+        console.error("❌ ElevenLabs text-to-speech failed:", err);
+        throw new Error("Text-to-speech generation failed");
+      }
 
+      await lipSyncMessage(hash, i);
       message.audio = await audioFileToBase64(mp3Path);
       message.lipsync = await readJsonTranscript(jsonPath);
     }
 
     res.send({ messages });
   } catch (err) {
-    console.error("❌ Error:", err.message || err);
+    console.error("❌ Backend Error:", err.message || err);
     res.status(500).send({ error: "Something went wrong!", detail: err.message });
   }
 });
 
 app.listen(port, () => {
-  console.log(`✅ Server running on port ${port}`);
+  console.log(`🚀 Server running on port ${port}`);
 });
