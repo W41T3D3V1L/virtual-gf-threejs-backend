@@ -20,7 +20,7 @@ app.use(cors());
 
 const port = 3000;
 const elevenLabsApiKey = process.env.ELEVEN_LABS_API_KEY;
-const voiceID = "9BWtsMINqrJLrRacOk9x"; // Replace with your preferred voice
+const voiceID = "21m00Tcm4TlvDq8ikWAM"; // Replace with your preferred voice
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
   baseURL: "https://api.chatanywhere.tech/v1",
