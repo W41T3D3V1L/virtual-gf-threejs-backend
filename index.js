@@ -12,6 +12,12 @@ import crypto from "crypto";
 
 dotenv.config();
 
+const app = express();
+app.use(express.json());
+app.use(cors());
+
+const port = 3000;
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
   baseURL: "https://api.chatanywhere.tech/v1",
@@ -20,27 +26,25 @@ const openai = new OpenAI({
 const elevenLabsApiKey = process.env.ELEVEN_LABS_API_KEY;
 const voiceID = "Xb7hH8MSUJpSbSDYk0k2";
 
-const app = express();
-app.use(express.json());
-app.use(cors());
-
-const port = 3000;
-
-app.get("/", (req, res) => {
-  res.send("Hello World!");
-});
-
-app.get("/voices", async (req, res) => {
-  res.send(await voice.getVoices(elevenLabsApiKey));
-});
-
 const execCommand = (command) => {
   return new Promise((resolve, reject) => {
     exec(command, (error, stdout, stderr) => {
-      if (error) reject(error);
+      if (error) reject(stderr || error);
       else resolve(stdout);
     });
   });
+};
+
+const waitForFile = async (filePath, retries = 20, delay = 200) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw new Error(`File not found: ${filePath}`);
 };
 
 const lipSyncMessage = async (hash, index) => {
@@ -48,6 +52,7 @@ const lipSyncMessage = async (hash, index) => {
   const mp3Path = path.join(os.tmpdir(), `message_${hash}_${index}.mp3`);
   const jsonPath = path.join(os.tmpdir(), `message_${hash}_${index}.json`);
 
+  await waitForFile(mp3Path);
   await execCommand(`${ffmpegPath} -y -i ${mp3Path} ${wavPath}`);
   await execCommand(`/bin/rhubarb -f json -o ${jsonPath} ${wavPath} -r phonetic`);
 };
@@ -61,6 +66,10 @@ const audioFileToBase64 = async (file) => {
   const data = await fs.readFile(file);
   return data.toString("base64");
 };
+
+app.get("/", (req, res) => {
+  res.send("✅ Virtual Girlfriend Backend Running!");
+});
 
 app.post("/chat", async (req, res) => {
   const userMessage = req.body.message;
@@ -78,10 +87,7 @@ app.post("/chat", async (req, res) => {
           role: "system",
           content: `You are a virtual girlfriend. Always respond with a JSON array of messages. Each message has text, facialExpression (smile, sad, angry, surprised, funnyFace, default), and animation (Talking_0, Talking_1, Talking_2, Crying, Laughing, Rumba, Idle, Terrified, Angry). Max 3 messages.`,
         },
-        {
-          role: "user",
-          content: userMessage,
-        },
+        { role: "user", content: userMessage },
       ],
     });
 
@@ -110,10 +116,10 @@ app.post("/chat", async (req, res) => {
     res.send({ messages });
   } catch (err) {
     console.error("❌ Error:", err.message || err);
-    res.status(500).send({ error: "Something went wrong! 😢", detail: err.message });
+    res.status(500).send({ error: "Something went wrong!", detail: err.message });
   }
 });
 
 app.listen(port, () => {
-  console.log(`✅ Virtual Girlfriend listening on port ${port}`);
+  console.log(`✅ Server running on port ${port}`);
 });
