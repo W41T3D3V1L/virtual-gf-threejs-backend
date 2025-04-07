@@ -116,9 +116,12 @@ app.post("/chat", async (req, res) => {
       try {
         console.log(`🔊 Generating voice for message[${i}]: ${message.text}`);
         await textToSpeech(elevenLabsApiKey, voiceID, mp3Path, message.text);
-        console.log(`✅ Voice saved to: ${mp3Path}`);
+
+        // Ensure the file is truly written before proceeding
+        await waitForFile(mp3Path);
+        console.log(`✅ Voice confirmed and saved: ${mp3Path}`);
       } catch (err) {
-        console.error("❌ ElevenLabs text-to-speech failed:", err);
+        console.error("❌ ElevenLabs TTS failed:", err);
         throw new Error("Text-to-speech generation failed");
       }
 
