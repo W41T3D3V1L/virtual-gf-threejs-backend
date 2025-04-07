@@ -1,8 +1,8 @@
 import axios from "axios";
 import fs from "fs";
 
-const apiKey = "sk_02dab316cxxxxxxxxxxx"; // Replace this
-const voiceId = "9BWtsMxxxxxxxxxxxx"; // Replace this
+const apiKey = "sk_02dxxxxxx"; // Replace this
+const voiceId = "9BWtsMINqrJLrRacOk9x"; // Replace this
 
 const payload = {
   text: "Hello from ElevenLabs!",
