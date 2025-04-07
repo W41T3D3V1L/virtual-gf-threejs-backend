@@ -25,7 +25,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
   baseURL: "https://api.chatanywhere.tech/v1",
 });
-
+console.log("🔐 Loaded ELEVEN_LABS_API_KEY prefix:", process.env.ELEVEN_LABS_API_KEY?.slice(0, 5));
 const execCommand = (command) =>
   new Promise((resolve, reject) => {
     exec(command, (error, stdout, stderr) => {
