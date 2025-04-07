@@ -6,18 +6,19 @@ import express from "express";
 import { promises as fs } from "fs";
 import OpenAI from "openai";
 import ffmpegPath from 'ffmpeg-static';
-
+import os from 'os';
+import path from 'path';
 
 
 dotenv.config();
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-  baseURL: "https://api.chatanywhere.tech/v1", // 🔥 Using ChatAnywhere instead of default OpenAI
+  baseURL: "https://api.chatanywhere.tech/v1",
 });
 
 const elevenLabsApiKey = process.env.ELEVEN_LABS_API_KEY;
-const voiceID = "Xb7hH8MSUJpSbSDYk0k2"; // You can change this
+const voiceID = "Xb7hH8MSUJpSbSDYk0k2";
 
 const app = express();
 app.use(express.json());
@@ -42,13 +43,12 @@ const execCommand = (command) => {
 };
 
 const lipSyncMessage = async (message) => {
-  const time = new Date().getTime();
-  // await execCommand(`ffmpeg -y -i audios/message_${message}.mp3 audios/message_${message}.wav`);
-  await execCommand(`${ffmpegPath} -y -i audios/message_${message}.mp3 audios/message_${message}.wav`);
+  const wavPath = path.join(os.tmpdir(), `message_${message}.wav`);
+  const mp3Path = path.join(os.tmpdir(), `message_${message}.mp3`);
+  const jsonPath = path.join(os.tmpdir(), `message_${message}.json`);
 
-  // await execCommand(`"C:\\Users\\Dell\\Downloads\\Compressed\\Rhubarb-Lip-Sync-1.14.0-Windows\\Rhubarb-Lip-Sync-1.14.0-Windows\\rhubarb.exe" -f json -o audios/message_${message}.json audios/message_${message}.wav -r phonetic`);
-  await execCommand(`./bin/rhubarb -f json -o audios/message_${message}.json audios/message_${message}.wav -r phonetic`);
-
+  await execCommand(`${ffmpegPath} -y -i ${mp3Path} ${wavPath}`);
+  await execCommand(`./bin/rhubarb -f json -o ${jsonPath} ${wavPath} -r phonetic`);
 };
 
 const readJsonTranscript = async (file) => {
@@ -65,52 +65,20 @@ app.post("/chat", async (req, res) => {
   const userMessage = req.body.message;
 
   if (!userMessage) {
-    res.send({
-      messages: [
-        {
-          text: "Hey dear... How was your day?",
-          audio: await audioFileToBase64("audios/intro_0.wav"),
-          lipsync: await readJsonTranscript("audios/intro_0.json"),
-          facialExpression: "smile",
-          animation: "Talking_1",
-        },
-        {
-          text: "I missed you so much... Please don't go for so long!",
-          audio: await audioFileToBase64("audios/intro_1.wav"),
-          lipsync: await readJsonTranscript("audios/intro_1.json"),
-          facialExpression: "sad",
-          animation: "Crying",
-        },
-      ],
+    return res.send({
+      messages: [], // You can customize this fallback
     });
-    return;
   }
 
   if (!elevenLabsApiKey || !openai.apiKey || openai.apiKey === "-") {
-    res.send({
-      messages: [
-        {
-          text: "Please my dear, don't forget to add your API keys!",
-          audio: await audioFileToBase64("audios/api_0.wav"),
-          lipsync: await readJsonTranscript("audios/api_0.json"),
-          facialExpression: "angry",
-          animation: "Angry",
-        },
-        {
-          text: "You don't want to ruin Celikd with a crazy ChatGPT and ElevenLabs bill, right?",
-          audio: await audioFileToBase64("audios/api_1.wav"),
-          lipsync: await readJsonTranscript("audios/api_1.json"),
-          facialExpression: "smile",
-          animation: "Laughing",
-        },
-      ],
+    return res.send({
+      messages: [], // API key missing fallback
     });
-    return;
   }
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // or deepseek-v3
+      model: "gpt-4o-mini",
       max_tokens: 1000,
       temperature: 0.6,
       messages: [
@@ -133,7 +101,6 @@ app.post("/chat", async (req, res) => {
 
     let rawContent = completion.choices[0].message.content;
 
-    // Remove markdown if present
     if (rawContent.startsWith("```json")) {
       rawContent = rawContent.replace(/^```json/, "").replace(/```$/, "").trim();
     }
@@ -143,11 +110,13 @@ app.post("/chat", async (req, res) => {
 
     for (let i = 0; i < messages.length; i++) {
       const message = messages[i];
-      const fileName = `audios/message_${i}.mp3`;
-      await voice.textToSpeech(elevenLabsApiKey, voiceID, fileName, message.text);
+      const mp3Path = path.join(os.tmpdir(), `message_${i}.mp3`);
+      const jsonPath = path.join(os.tmpdir(), `message_${i}.json`);
+
+      await voice.textToSpeech(elevenLabsApiKey, voiceID, mp3Path, message.text);
       await lipSyncMessage(i);
-      message.audio = await audioFileToBase64(fileName);
-      message.lipsync = await readJsonTranscript(`audios/message_${i}.json`);
+      message.audio = await audioFileToBase64(mp3Path);
+      message.lipsync = await readJsonTranscript(jsonPath);
     }
 
     res.send({ messages });
