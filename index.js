@@ -1,14 +1,14 @@
-import { exec } from "child_process";
+import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import voice from "elevenlabs-node";
-import express from "express";
-import { promises as fs } from "fs";
 import OpenAI from "openai";
-import ffmpegPath from 'ffmpeg-static';
-import os from 'os';
-import path from 'path';
-
+import { exec } from "child_process";
+import { promises as fs } from "fs";
+import ffmpegPath from "ffmpeg-static";
+import os from "os";
+import path from "path";
+import crypto from "crypto";
 
 dotenv.config();
 
@@ -23,6 +23,7 @@ const voiceID = "Xb7hH8MSUJpSbSDYk0k2";
 const app = express();
 app.use(express.json());
 app.use(cors());
+
 const port = 3000;
 
 app.get("/", (req, res) => {
@@ -37,15 +38,15 @@ const execCommand = (command) => {
   return new Promise((resolve, reject) => {
     exec(command, (error, stdout, stderr) => {
       if (error) reject(error);
-      resolve(stdout);
+      else resolve(stdout);
     });
   });
 };
 
-const lipSyncMessage = async (message) => {
-  const wavPath = path.join(os.tmpdir(), `message_${message}.wav`);
-  const mp3Path = path.join(os.tmpdir(), `message_${message}.mp3`);
-  const jsonPath = path.join(os.tmpdir(), `message_${message}.json`);
+const lipSyncMessage = async (hash, index) => {
+  const wavPath = path.join(os.tmpdir(), `message_${hash}_${index}.wav`);
+  const mp3Path = path.join(os.tmpdir(), `message_${hash}_${index}.mp3`);
+  const jsonPath = path.join(os.tmpdir(), `message_${hash}_${index}.json`);
 
   await execCommand(`${ffmpegPath} -y -i ${mp3Path} ${wavPath}`);
   await execCommand(`/bin/rhubarb -f json -o ${jsonPath} ${wavPath} -r phonetic`);
@@ -63,17 +64,8 @@ const audioFileToBase64 = async (file) => {
 
 app.post("/chat", async (req, res) => {
   const userMessage = req.body.message;
-
-  if (!userMessage) {
-    return res.send({
-      messages: [], // You can customize this fallback
-    });
-  }
-
-  if (!elevenLabsApiKey || !openai.apiKey || openai.apiKey === "-") {
-    return res.send({
-      messages: [], // API key missing fallback
-    });
+  if (!userMessage || !elevenLabsApiKey || !openai.apiKey || openai.apiKey === "-") {
+    return res.send({ messages: [] });
   }
 
   try {
@@ -84,13 +76,7 @@ app.post("/chat", async (req, res) => {
       messages: [
         {
           role: "system",
-          content: `
-            You are a virtual girlfriend.
-            You will always reply with a JSON array of messages. With a maximum of 3 messages.
-            Each message has a text, facialExpression, and animation property.
-            The different facial expressions are: smile, sad, angry, surprised, funnyFace, and default.
-            The different animations are: Talking_0, Talking_1, Talking_2, Crying, Laughing, Rumba, Idle, Terrified, and Angry.
-          `,
+          content: `You are a virtual girlfriend. Always respond with a JSON array of messages. Each message has text, facialExpression (smile, sad, angry, surprised, funnyFace, default), and animation (Talking_0, Talking_1, Talking_2, Crying, Laughing, Rumba, Idle, Terrified, Angry). Max 3 messages.`,
         },
         {
           role: "user",
@@ -100,7 +86,6 @@ app.post("/chat", async (req, res) => {
     });
 
     let rawContent = completion.choices[0].message.content;
-
     if (rawContent.startsWith("```json")) {
       rawContent = rawContent.replace(/^```json/, "").replace(/```$/, "").trim();
     }
@@ -108,19 +93,21 @@ app.post("/chat", async (req, res) => {
     let messages = JSON.parse(rawContent);
     if (messages.messages) messages = messages.messages;
 
+    const hash = crypto.createHash("md5").update(userMessage).digest("hex");
+
     for (let i = 0; i < messages.length; i++) {
       const message = messages[i];
-      const mp3Path = path.join(os.tmpdir(), `message_${i}.mp3`);
-      const jsonPath = path.join(os.tmpdir(), `message_${i}.json`);
+      const mp3Path = path.join(os.tmpdir(), `message_${hash}_${i}.mp3`);
+      const jsonPath = path.join(os.tmpdir(), `message_${hash}_${i}.json`);
 
       await voice.textToSpeech(elevenLabsApiKey, voiceID, mp3Path, message.text);
-      await lipSyncMessage(i);
+      await lipSyncMessage(hash, i);
+
       message.audio = await audioFileToBase64(mp3Path);
       message.lipsync = await readJsonTranscript(jsonPath);
     }
 
     res.send({ messages });
-
   } catch (err) {
     console.error("❌ Error:", err.message || err);
     res.status(500).send({ error: "Something went wrong! 😢", detail: err.message });
