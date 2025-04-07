@@ -48,7 +48,7 @@ const lipSyncMessage = async (message) => {
   const jsonPath = path.join(os.tmpdir(), `message_${message}.json`);
 
   await execCommand(`${ffmpegPath} -y -i ${mp3Path} ${wavPath}`);
-  await execCommand(`./bin/rhubarb -f json -o ${jsonPath} ${wavPath} -r phonetic`);
+  await execCommand(`/bin/rhubarb -f json -o ${jsonPath} ${wavPath} -r phonetic`);
 };
 
 const readJsonTranscript = async (file) => {
